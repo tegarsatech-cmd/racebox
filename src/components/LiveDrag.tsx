@@ -24,6 +24,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
   const [isStarted, setIsStarted] = useState<boolean>(false); // Auto-starts when movement begins
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [liveTopSpeed, setLiveTopSpeed] = useState<number>(0);
+  const [liveAvgSpeed, setLiveAvgSpeed] = useState<number>(0);
   
   // Lists of checkpoints to capture
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
@@ -53,6 +54,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     startTimeRef.current = 0;
     distanceRef.current = 0;
     liveTopSpeedRef.current = 0;
+    setLiveAvgSpeed(0);
     gpsPointsForStartRef.current = [];
     consecutiveMovementSamplesRef.current = [];
     consecutiveMovementPointsRef.current = 0;
@@ -98,13 +100,16 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     // Use our highly-validated liveTopSpeed to prevent drift spikes from affecting history
     const maxSpeed = liveTopSpeedRef.current;
     
-    // Average speed from checkpoints or track
-    const totalDuration = elapsedTime;
-    const avgSpeed = totalDuration > 0 ? convertSpeed(distanceRef.current / totalDuration, appSettings.unit) : 0;
-
     // Use interpolated time for the target checkpoint as totalTime if available (more accurate)
     const targetCp = finalCps.find((cp) => cp.distance === targetDistance && cp.passed);
     const finalElapsedTime = targetCp ? targetCp.time : elapsedTime;
+
+    // Average speed from checkpoints or track with explicit guards
+    const finalValidDistance = targetCp ? targetDistance : distanceRef.current;
+    let avgSpeed = 0;
+    if (finalValidDistance > 0 && finalElapsedTime > 0) {
+      avgSpeed = convertSpeed(finalValidDistance / finalElapsedTime, appSettings.unit);
+    }
 
     // Compute average GPS Accuracy recorded during active run
     const avgAccuracy = gpsAccuracyListRef.current.length > 0
@@ -315,7 +320,13 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
 
         distanceRef.current = currentCumulativeDistance;
         setDistance(currentCumulativeDistance);
-        setElapsedTime((now - startMovementTimestamp) / 1000);
+        const initialElapsedTimeSec = (now - startMovementTimestamp) / 1000;
+        setElapsedTime(initialElapsedTimeSec);
+        if (initialElapsedTimeSec > 0) {
+          setLiveAvgSpeed(convertSpeed(currentCumulativeDistance / initialElapsedTimeSec, appSettings.unit));
+        } else {
+          setLiveAvgSpeed(0);
+        }
         
         // Top Speed and Live Speed from the latest candidate
         const latestPoint = initialTrack[initialTrack.length - 1];
@@ -362,6 +373,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
         setSpeed(0);
         setLiveTopSpeed(0);
         liveTopSpeedRef.current = 0;
+        setLiveAvgSpeed(0);
       }
 
       lastSampleRef.current = { lat: currentLat, lng: currentLng, timestamp: now };
@@ -446,6 +458,13 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     distanceRef.current = newCumulativeDistance;
     setDistance(newCumulativeDistance);
     setSpeed(smoothedSpeed);
+
+    // Calculate and update live Average Speed real-time with explicit guards
+    if (newCumulativeDistance > 0 && elapsedSec > 0 && isStartedRef.current) {
+      setLiveAvgSpeed(convertSpeed(newCumulativeDistance / elapsedSec, appSettings.unit));
+    } else {
+      setLiveAvgSpeed(0);
+    }
 
     // Track Top Speed only from validated smoothed speed
     const speedUnitValue = convertSpeed(smoothedSpeed, appSettings.unit);
@@ -631,12 +650,21 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
               {appSettings.unit}
             </span>
           </div>
-          {/* Real-time Top Speed Indicator */}
-          <div className="mt-1 flex items-center justify-center gap-1 font-orbitron text-[10px] font-bold text-white uppercase tracking-wider">
-            <span className="text-text-dim">TOP SPEED:</span>
-            <span className="text-brand-orange font-black">
-              {liveTopSpeed.toFixed(1)} {appSettings.unit}
-            </span>
+          {/* Real-time Top & Avg Speed Indicator */}
+          <div className="mt-1.5 flex items-center justify-center gap-4 font-orbitron text-[10px] font-bold text-white uppercase tracking-wider">
+            <div className="flex items-center gap-1">
+              <span className="text-text-dim">TOP SPEED:</span>
+              <span className="text-brand-orange font-black">
+                {liveTopSpeed.toFixed(1)} {appSettings.unit}
+              </span>
+            </div>
+            <span className="text-card-border">|</span>
+            <div className="flex items-center gap-1">
+              <span className="text-text-dim">AVG SPEED:</span>
+              <span className="text-[#00ff66] font-black">
+                {liveAvgSpeed.toFixed(1)} {appSettings.unit}
+              </span>
+            </div>
           </div>
         </div>
 

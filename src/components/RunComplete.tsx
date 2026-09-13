@@ -95,19 +95,27 @@ export const RunComplete: React.FC<RunCompleteProps> = ({
           </div>
         </div>
 
+        {/* HERO TIME DISPLAY */}
+        <div className="mb-4 text-center bg-[#0d0e14] border border-card-border rounded-xl py-4 shadow-inner relative overflow-hidden">
+          <span className="text-[10px] font-bold tracking-widest text-text-dim uppercase font-orbitron">ELAPSED TIME (WAKTU UTAMA)</span>
+          <p className="font-orbitron text-5xl font-extrabold tracking-tight text-[#00ff66] mt-1.5 font-black">
+            {runData.totalTime.toFixed(2)}<span className="text-xl font-black text-[#00ff66] ml-0.5">S</span>
+          </p>
+        </div>
+
         {/* TOP SPEED & AVG SPEED GRID */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded border border-card-border bg-[#0d0e14] p-3 text-center">
-            <span className="text-[9px] font-bold text-text-dim uppercase tracking-wider block mb-1 font-orbitron">TOP SPEED</span>
-            <p className="font-orbitron text-2xl font-black text-white">
-              {runData.topSpeed.toFixed(1)} <span className="text-xs text-brand-orange">{runData.unit}</span>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-card-border bg-[#0d0e14] p-3 text-center">
+            <span className="text-[8px] font-bold text-text-dim uppercase tracking-wider block mb-1 font-orbitron">TOP SPEED</span>
+            <p className="font-orbitron text-xl font-black text-white">
+              {runData.topSpeed.toFixed(1)} <span className="text-[10px] font-black text-brand-orange">{runData.unit}</span>
             </p>
           </div>
 
-          <div className="rounded border border-card-border bg-[#0d0e14] p-3 text-center">
-            <span className="text-[9px] font-bold text-text-dim uppercase tracking-wider block mb-1 font-orbitron">AVG SPEED</span>
-            <p className="font-orbitron text-2xl font-black text-white">
-              {runData.averageSpeed.toFixed(1)} <span className="text-xs text-brand-orange">{runData.unit}</span>
+          <div className="rounded-xl border border-card-border bg-[#0d0e14] p-3 text-center">
+            <span className="text-[8px] font-bold text-text-dim uppercase tracking-wider block mb-1 font-orbitron">AVG SPEED</span>
+            <p className="font-orbitron text-xl font-black text-white">
+              {runData.averageSpeed.toFixed(1)} <span className="text-[10px] font-black text-brand-orange">{runData.unit}</span>
             </p>
           </div>
         </div>
