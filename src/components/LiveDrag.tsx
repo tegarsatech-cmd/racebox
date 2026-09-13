@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppSettings, VehicleSettings, CheckpointRecord, GPSTrackPoint } from '../types';
+import { AppSettings, VehicleSettings, CheckpointRecord, GPSTrackPoint, GPSLogSample } from '../types';
 import { haversineDistance, interpolateCheckpoint, filterGPSPoint, convertSpeed, formatTime } from '../utils';
 import { ShieldAlert, Timer, Compass, Zap, Ban } from 'lucide-react';
 
@@ -25,6 +25,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [liveTopSpeed, setLiveTopSpeed] = useState<number>(0);
   const [liveAvgSpeed, setLiveAvgSpeed] = useState<number>(0);
+  const [showDebug, setShowDebug] = useState<boolean>(false);
   
   // Lists of checkpoints to capture
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
@@ -47,6 +48,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
   const distanceRef = useRef<number>(0);
   const liveTopSpeedRef = useRef<number>(0);
   const lastSampleRef = useRef<{ lat: number; lng: number; timestamp: number } | null>(null);
+  const debugLogsRef = useRef<GPSLogSample[]>([]);
 
   // Initialize and reset tracking states on mount
   useEffect(() => {
@@ -61,6 +63,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     lastSampleRef.current = null;
     lastPointRef.current = null;
     gpsTrackRef.current = [];
+    debugLogsRef.current = [];
   }, []);
 
   // Initialize checkpoints list
@@ -76,7 +79,8 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     const records: CheckpointRecord[] = rawCheckpoints.map((cp) => ({
       distance: cp,
       time: 0,
-      speed: 0,
+      avgSpeed: 0,
+      instantSpeed: 0,
       passed: false,
     }));
 
@@ -151,9 +155,42 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
       unit: appSettings.unit,
       gpsAccuracyAvg: avgAccuracy,
       dataQuality: qualityLevel,
+      debugLogs: debugLogsRef.current,
     };
 
     onFinishRun(runResult);
+  };
+
+  // --- TELEMETRY DEBUG LOG ENGINE ---
+  const logDebugSample = (
+    timestamp: number,
+    lat: number,
+    lng: number,
+    accuracy: number,
+    gpsSpeed: number,
+    calculatedSpeed: number,
+    segmentDistance: number,
+    isValid: boolean,
+    rejectReason?: string
+  ) => {
+    const elapsed = startTimeRef.current > 0 ? (timestamp - startTimeRef.current) / 1000 : 0;
+    const sample: GPSLogSample = {
+      timestamp,
+      elapsedTime: elapsed,
+      latitude: lat,
+      longitude: lng,
+      accuracy,
+      gpsSpeed,
+      calculatedSpeed,
+      segmentDistance,
+      totalDistance: distanceRef.current,
+      isValid,
+      rejectReason
+    };
+    debugLogsRef.current.push(sample);
+    if (debugLogsRef.current.length > 250) {
+      debugLogsRef.current.shift();
+    }
   };
 
   // --- UNIFIED GPS UPDATE ENGINE (USED BY REAL GPS SENSOR) ---
@@ -161,12 +198,15 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     const now = position.timestamp || Date.now();
     const coords = position.coords;
     const acc = coords.accuracy;
+    const currentLat = coords.latitude;
+    const currentLng = coords.longitude;
+    const rawSpeed = coords.speed !== null && coords.speed >= 0 ? coords.speed : 0; // m/s
     
     // 1. REJECT STALE GPS READINGS (older than 3 seconds)
     const staleAgeMs = Date.now() - now;
-    // For sensor inputs, we tolerate small lag, but reject real stale data
     if (staleAgeMs > 3000) {
       console.warn('GPS data too stale:', staleAgeMs, 'ms. Ignored.');
+      logDebugSample(now, currentLat, currentLng, acc, rawSpeed, 0, 0, false, `GPS data stale (${staleAgeMs}ms)`);
       return;
     }
 
@@ -174,12 +214,9 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     setGpsAccuracy(acc);
     if (acc > 20) {
       console.warn('GPS accuracy too poor:', acc, 'm. Point rejected.');
+      logDebugSample(now, currentLat, currentLng, acc, rawSpeed, 0, 0, false, `Poor GPS accuracy (${acc.toFixed(1)}m > 20m)`);
       return;
     }
-
-    const currentLat = coords.latitude;
-    const currentLng = coords.longitude;
-    const rawSpeed = coords.speed !== null && coords.speed >= 0 ? coords.speed : 0; // m/s
 
     // 3. READY STATE: COLLECT STABLE START POSITION REFERENCE & FILTER DRIFT
     if (!isStartedRef.current) {
@@ -194,6 +231,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
         setSpeed(0);
         setLiveTopSpeed(0);
         lastSampleRef.current = { lat: currentLat, lng: currentLng, timestamp: now };
+        logDebugSample(now, currentLat, currentLng, acc, rawSpeed, 0, 0, false, `Stabilizing start position (${gpsPointsForStartRef.current.length}/5 samples)`);
         return;
       }
 
@@ -231,14 +269,13 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
       const calculatedSpeed = dtFromLast > 0 ? (distFromLast / dtFromLast) : 0;
 
       // Adaptive movement threshold based on GPS accuracy: movementThreshold = f(accuracy)
-      // If accuracy is poor (e.g. 10m), we require larger displacement (22m) to declare movement
+      // If accuracy is poor (e.g. 10m), we require larger displacement to declare movement
       const movementThreshold = Math.max(12.0, acc * 2.2);
       
       // Check if position change is beyond our adaptive threshold
       const isPositionMoving = displacementFromAnchor > movementThreshold;
 
       // Check if speed shows true movement and has a reasonable displacement
-      // speed > 1.2 m/s (~4.3 km/h) is a clear indication of a moving vehicle
       const isSpeedMoving = (rawSpeed > 1.2 || calculatedSpeed > 1.2) && displacementFromAnchor > 3.5;
 
       // Validated time interval (ensure sample rates are reasonable, e.g. 0.1s to 4.0s)
@@ -259,27 +296,25 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
           speed: rawSpeed,
           accuracy: acc
         });
+        logDebugSample(now, currentLat, currentLng, acc, rawSpeed, calculatedSpeed, distFromLast, false, `Movement candidate (${consecutiveMovementSamplesRef.current.length}/3)`);
       } else {
         // Clear history of movement candidates if they break consistency
         consecutiveMovementSamplesRef.current = [];
         consecutiveMovementPointsRef.current = 0;
         
-        // Zero-Velocity Update (ZUPT):
-        // If stationary, slowly match anchor to current position to absorb steady GPS drift
+        // Zero-Velocity Update (ZUPT): slowly match anchor to current position to absorb steady GPS drift
         if (rawSpeed < 0.3 && displacementFromAnchor < 4.0) {
           anchorPointRef.current = { lat: currentLat, lng: currentLng };
         }
+        logDebugSample(now, currentLat, currentLng, acc, rawSpeed, calculatedSpeed, distFromLast, false, 'Rejected: stationary GPS drift');
       }
 
       // Require at least 3 consecutive updates showing true consistent movement to trigger READY -> RUNNING
-      // This prevents single coordinate spikes/drifts from triggering a false start
       if (consecutiveMovementSamplesRef.current.length >= 3) {
         isStartedRef.current = true;
         setIsStarted(true);
 
         const candidates = consecutiveMovementSamplesRef.current;
-        // The exact moment movement started is the timestamp of the FIRST candidate point!
-        // This eliminates any start-lag and ensures 100% accurate Elapsed Time (ET).
         const startMovementTimestamp = candidates[0].timestamp;
         startTimeRef.current = startMovementTimestamp;
         
@@ -363,11 +398,13 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
             const pB = initialTrack[k];
             if (pA.cumulativeDistance < cp.distance && pB.cumulativeDistance >= cp.distance) {
               const interpolated = interpolateCheckpoint(pA, pB, cp.distance);
+              const cpAvg = interpolated.time > 0 ? convertSpeed(cp.distance / interpolated.time, appSettings.unit) : 0;
               return {
                 ...cp,
                 passed: true,
                 time: interpolated.time,
-                speed: convertSpeed(interpolated.speed, appSettings.unit),
+                avgSpeed: cpAvg,
+                instantSpeed: convertSpeed(interpolated.speed, appSettings.unit),
               };
             }
           }
@@ -376,14 +413,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
         checkpointsRef.current = initialCps;
         setCheckpoints(initialCps);
 
-      } else {
-        // Keep all stats completely locked to 0 while stationary/stabilizing
-        setDistance(0);
-        setElapsedTime(0);
-        setSpeed(0);
-        setLiveTopSpeed(0);
-        liveTopSpeedRef.current = 0;
-        setLiveAvgSpeed(0);
+        logDebugSample(now, currentLat, currentLng, acc, rawSpeed, latestSpeed, currentCumulativeDistance, true, 'True movement detected! Start timer.');
       }
 
       lastSampleRef.current = { lat: currentLat, lng: currentLng, timestamp: now };
@@ -404,6 +434,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     };
     if (!filterGPSPoint(testPoint, lastPoint)) {
       console.warn('Point failed secondary filter validation.');
+      logDebugSample(now, currentLat, currentLng, acc, rawSpeed, 0, 0, false, 'Failed geodetic velocity validation (outlier GPS jump)');
       return;
     }
 
@@ -436,21 +467,21 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     const hasGPSSpeed = (coords.speed !== null && coords.speed > 0.05);
 
     if (hasGPSSpeed) {
-      const rawSpeed = coords.speed!;
+      const rawSpeedVal = coords.speed!;
       // Validate GPS reported speed
       if (dt > 0) {
-        const acceleration = (rawSpeed - lastPoint.speed) / dt;
-        const speedDiff = Math.abs(rawSpeed - impliedSpeed);
+        const acceleration = (rawSpeedVal - lastPoint.speed) / dt;
+        const speedDiff = Math.abs(rawSpeedVal - impliedSpeed);
         
         // If reported speed has impossible acceleration or is a massive outlier from implied speed
-        if (acceleration > 13.0 || acceleration < -22.0 || (rawSpeed > 15 && speedDiff > rawSpeed * 0.7)) {
+        if (acceleration > 13.0 || acceleration < -22.0 || (rawSpeedVal > 15 && speedDiff > rawSpeedVal * 0.7)) {
           // Fallback to calculated (implied) speed
           validSpeedCandidate = impliedSpeed;
         } else {
-          validSpeedCandidate = rawSpeed;
+          validSpeedCandidate = rawSpeedVal;
         }
       } else {
-        validSpeedCandidate = rawSpeed;
+        validSpeedCandidate = rawSpeedVal;
       }
     } else {
       // coords.speed is not available or not valid, use fallback: distance / deltaTime
@@ -518,11 +549,13 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
           interpSpeed = interpolated.speed;
         }
 
+        const cpAvg = interpTime > 0 ? convertSpeed(cp.distance / interpTime, appSettings.unit) : 0;
         return {
           ...cp,
           passed: true,
           time: interpTime,
-          speed: convertSpeed(interpSpeed, appSettings.unit),
+          avgSpeed: cpAvg,
+          instantSpeed: convertSpeed(interpSpeed, appSettings.unit),
         };
       }
       return cp;
@@ -530,6 +563,8 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
 
     checkpointsRef.current = updatedCps;
     setCheckpoints(updatedCps);
+
+    logDebugSample(now, currentLat, currentLng, acc, rawSpeed, validSpeedCandidate, incrementalDistance, true);
 
     lastPointRef.current = currentPoint;
 
@@ -775,7 +810,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
                         {cp.time.toFixed(2)} S
                       </span>
                       <span className="font-tech text-[8px] text-text-dim font-bold">
-                        {cp.speed.toFixed(1)} {appSettings.unit}
+                        {cp.instantSpeed.toFixed(1)} {appSettings.unit}
                       </span>
                     </div>
                   ) : (
@@ -788,6 +823,82 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* COLLAPSIBLE DEVELOPER TELEMETRY DEBUG PANEL */}
+      <div className="my-3 border border-card-border/60 rounded-xl bg-[#090a10]/90 p-3.5 text-left text-xs text-text-dim font-mono">
+        <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setShowDebug(!showDebug)}>
+          <span className="font-orbitron font-extrabold text-[10px] tracking-widest text-[#00ff66] uppercase">
+            🛠️ TELEMETRY DEBUGGER
+          </span>
+          <span className="text-text-dim text-[10px] font-black uppercase tracking-widest font-orbitron hover:text-white bg-card-bg border border-card-border/80 px-2.5 py-1 rounded-lg">
+            {showDebug ? 'SEMBUNYIKAN ✕' : 'TAMPILKAN ⚡'}
+          </span>
+        </div>
+
+        {showDebug && (
+          <div className="mt-3.5 space-y-3.5 border-t border-card-border/40 pt-3.5 max-h-[160px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-2 text-[10px] leading-relaxed text-[#f1f1f1]/80">
+              <div>
+                <span className="font-bold text-brand-orange">START TIMESTEP:</span>{' '}
+                {startTimeRef.current > 0 ? startTimeRef.current : 'WAITING FOR MOVEMENT...'}
+              </div>
+              <div>
+                <span className="font-bold text-brand-orange">CUMULATIVE DIS:</span>{' '}
+                {distance.toFixed(2)} M
+              </div>
+              <div>
+                <span className="font-bold text-brand-orange">GPS TRACK PT:</span>{' '}
+                {gpsTrack.length} PTS
+              </div>
+              <div>
+                <span className="font-bold text-brand-orange">TOP ACC SPEED:</span>{' '}
+                {liveTopSpeed.toFixed(2)} {appSettings.unit}
+              </div>
+            </div>
+
+            <div className="space-y-1.5 border-t border-card-border/40 pt-2.5">
+              <span className="text-[9px] font-black text-brand-orange block uppercase tracking-wider font-orbitron">
+                SAMPEL GPS LOGS (LATEST 15):
+              </span>
+              <div className="space-y-1 text-[9px] leading-tight">
+                {debugLogsRef.current.slice(-15).reverse().map((log, idx) => (
+                  <div
+                    key={`debug-log-${idx}-${log.timestamp}`}
+                    className={`p-1.5 rounded border ${
+                      log.isValid
+                        ? 'border-emerald-950/40 bg-emerald-950/20 text-emerald-400'
+                        : 'border-red-950/40 bg-red-950/20 text-red-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold">
+                      <span>t={log.elapsedTime.toFixed(2)}s | acc={log.accuracy.toFixed(1)}m</span>
+                      <span className={log.isValid ? 'text-[#00ff66]' : 'text-red-400'}>
+                        {log.isValid ? 'VALID' : 'REJECTED'}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 opacity-80 font-mono text-[8px] flex flex-wrap gap-x-2">
+                      <span>Coords: {log.latitude.toFixed(6)}, {log.longitude.toFixed(6)}</span>
+                      <span>GPS Spd: {(log.gpsSpeed * 3.6).toFixed(1)} Kmh</span>
+                      <span>Calc Spd: {(log.calculatedSpeed * 3.6).toFixed(1)} Kmh</span>
+                      <span>Seg Dist: {log.segmentDistance.toFixed(1)}m</span>
+                    </div>
+                    {log.rejectReason && (
+                      <div className="mt-1 font-bold text-orange-400 italic text-[8px]">
+                        Reason: {log.rejectReason}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {debugLogsRef.current.length === 0 && (
+                  <div className="text-center py-2 text-text-dim text-[8px] italic">
+                    Belum ada sinyal sampling GPS terdaftar.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* CANCEL/STOP BUTTON */}

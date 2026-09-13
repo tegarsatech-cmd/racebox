@@ -23,9 +23,24 @@ export interface GPSTrackPoint {
 
 export interface CheckpointRecord {
   distance: number; // Checkpoint target (e.g. 60, 100, 201, etc.)
-  time: number; // elapsed time in seconds
-  speed: number; // speed in km/h or mph (based on app unit when run)
+  time: number; // elapsed time in seconds (checkpointET)
+  avgSpeed: number; // average speed from start to checkpoint in app unit
+  instantSpeed: number; // instantaneous speed at checkpoint crossing in app unit
   passed: boolean;
+}
+
+export interface GPSLogSample {
+  timestamp: number; // Epoch timestamp
+  elapsedTime: number; // in seconds since true movement
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  gpsSpeed: number; // m/s reported by GPS
+  calculatedSpeed: number; // m/s from segmentDistance / dt
+  segmentDistance: number; // meters
+  totalDistance: number; // cumulative distance
+  isValid: boolean;
+  rejectReason?: string;
 }
 
 export interface RaceHistoryEntry {
@@ -44,4 +59,5 @@ export interface RaceHistoryEntry {
   unit: 'KMH' | 'MPH';
   gpsAccuracyAvg?: number;
   dataQuality?: 'HIGH' | 'MEDIUM' | 'LOW';
+  debugLogs?: GPSLogSample[]; // Store internal debug logs
 }

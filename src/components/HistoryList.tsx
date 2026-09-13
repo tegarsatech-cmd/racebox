@@ -241,16 +241,25 @@ export const HistoryList: React.FC<HistoryListProps> = ({ onBack }) => {
                     )}
 
                     {/* CHECKPOINT ACCORDION VIEW */}
-                    <div className="rounded-lg border border-card-border bg-[#0d0e14] p-3 space-y-1.5">
+                    <div className="rounded-lg border border-card-border bg-[#0d0e14] p-3.5 space-y-2">
                       <span className="block text-[8px] font-bold text-text-dim uppercase tracking-widest font-orbitron mb-2">
                         CATATAN CHECKPOINT SEKTOR
                       </span>
                       {run.checkpoints.map((cp) => (
-                        <div key={`hist-cp-${cp.distance}`} className="flex items-center justify-between text-xs font-mono">
-                          <span className="font-orbitron text-[10px] text-text-dim">{cp.distance} Meter</span>
-                          <div className="flex gap-4">
-                            <span className="font-bold text-[#00ff66] font-orbitron">{cp.time.toFixed(2)} S</span>
-                            <span className="text-text-dim min-w-[65px] text-right font-tech">{cp.speed.toFixed(1)} {run.unit}</span>
+                        <div key={`hist-cp-${cp.distance}`} className="flex items-center justify-between text-xs font-mono border-b border-card-border/40 pb-1.5 last:border-0 last:pb-0">
+                          <span className="font-orbitron text-[10px] text-text-dim font-bold">{cp.distance} Meter</span>
+                          <div className="flex items-center gap-4">
+                            <span className="font-extrabold text-[#00ff66] font-orbitron">{cp.time.toFixed(2)} S</span>
+                            <div className="flex flex-col items-end gap-0.5 text-[9px] min-w-[100px] text-text-dim font-tech">
+                              <div>
+                                <span className="text-[8px] text-text-dim font-orbitron">AVG:</span>{' '}
+                                <span className="text-white font-bold">{(cp.avgSpeed || 0).toFixed(1)}</span> {run.unit}
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-brand-orange font-orbitron">INSTANT:</span>{' '}
+                                <span className="text-white font-bold">{(cp.instantSpeed || 0).toFixed(1)}</span> {run.unit}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}

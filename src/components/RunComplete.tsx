@@ -141,9 +141,16 @@ export const RunComplete: React.FC<RunCompleteProps> = ({
                 <span className="font-extrabold text-[#00ff66] font-orbitron text-sm">
                   {cp.time.toFixed(2)} S
                 </span>
-                <span className="text-xs text-text-dim min-w-[70px] text-right font-tech">
-                  {cp.speed.toFixed(1)} {runData.unit}
-                </span>
+                <div className="flex flex-col items-end gap-0.5 text-[10px] min-w-[110px] text-text-dim font-tech">
+                  <div>
+                    <span className="text-[9px] text-text-dim font-orbitron font-bold">AVG:</span>{' '}
+                    <span className="text-white font-extrabold">{(cp.avgSpeed || 0).toFixed(1)}</span> {runData.unit}
+                  </div>
+                  <div>
+                    <span className="text-[9px] text-brand-orange font-orbitron font-bold">INSTANT:</span>{' '}
+                    <span className="text-white font-extrabold">{(cp.instantSpeed || 0).toFixed(1)}</span> {runData.unit}
+                  </div>
+                </div>
               </div>
             </div>
           ))}
