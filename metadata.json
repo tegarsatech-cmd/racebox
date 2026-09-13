@@ -1,0 +1,10 @@
+{
+  "name": "RACEBOX - GPS Performance Meter",
+  "description": "Aplikasi dashboard motorsport untuk mengukur performa akselerasi kendaraan (Drag Meter) menggunakan GPS Geolocation realtime dan penyimpanan LocalStorage.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+:root {
+  --brand-orange: #ff4500;
+  --brand-orange-hover: #ff5e1a;
+  --neon-green: #00ff66;
+  --dark-bg: #090a0f;
+  --card-bg: #12141d;
+  --card-border: #1e2230;
+  --text-dim: #8b949e;
+  --text-main: #f1f1f1;
+  --bg-input: #0d0e14;
+}
+
+:root.light {
+  --dark-bg: #f3f4f6;
+  --card-bg: #ffffff;
+  --card-border: #e5e7eb;
+  --text-dim: #4b5563;
+  --text-main: #111827;
+  --bg-input: #f9fafb;
+}
+
+/* Light Mode Overrides for hardcoded elements */
+:root.light .text-white {
+  color: var(--text-main) !important;
+}
+
+:root.light .text-\[\#f1f1f1\] {
+  color: var(--text-main) !important;
+}
+
+:root.light .bg-\[\#0d0e14\] {
+  background-color: var(--bg-input) !important;
+  border-color: var(--card-border) !important;
+}
+
+:root.light .bg-\[\#090a10\] {
+  background-color: var(--bg-input) !important;
+  border-color: var(--card-border) !important;
+}
+
+:root.light .bg-\[\#1c2030\] {
+  background-color: #e5e7eb !important;
+  color: var(--text-main) !important;
+}
+
+:root.light .text-emerald-400 {
+  color: #059669 !important;
+}
+
+:root.light .text-[#00ff66] {
+  color: #059669 !important;
+}
+
+:root.light .neon-glow-green {
+  text-shadow: none !important;
+  color: #059669 !important;
+}
+
+:root.light .neon-glow-orange {
+  text-shadow: none !important;
+  color: #ea580c !important;
+}
+
+:root.light .bg-emerald-950\/20 {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+:root.light .bg-green-950\/10 {
+  background-color: #ecfdf5 !important;
+  color: #065f46 !important;
+}
+
+:root.light .bg-amber-950\/10 {
+  background-color: #fffbeb !important;
+  color: #92400e !important;
+}
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-orbitron: 'Orbitron', sans-serif;
+
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-orange-hover: var(--brand-orange-hover);
+  --color-neon-green: var(--neon-green);
+  --color-dark-bg: var(--dark-bg);
+  --color-card-bg: var(--card-bg);
+  --color-card-border: var(--card-border);
+  --color-text-dim: var(--text-dim);
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-dark-bg);
+    color: var(--text-main);
+    overflow-x: hidden;
+  }
+}
+
+/* Custom glowing elements */
+.neon-glow-orange {
+  text-shadow: 0 0 8px rgba(255, 69, 0, 0.6);
+}
+
+.neon-glow-green {
+  text-shadow: 0 0 8px rgba(0, 255, 102, 0.6);
+}
+
+.neon-border-green {
+  box-shadow: 0 0 12px rgba(0, 255, 102, 0.2);
+  border-color: rgba(0, 255, 102, 0.5);
+}
+
+.neon-border-orange {
+  box-shadow: 0 0 12px rgba(255, 69, 0, 0.2);
+  border-color: rgba(255, 69, 0, 0.5);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-dark-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-card-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-orange);
+}
+
+/* Custom Font classes for easy access */
+.font-orbitron {
+  font-family: var(--font-orbitron);
+}
+
+.font-tech {
+  font-family: var(--font-mono);
+}
+
