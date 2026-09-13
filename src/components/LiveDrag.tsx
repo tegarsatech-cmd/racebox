@@ -97,8 +97,13 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     const currentTrack = gpsTrackRef.current;
     const finalCps = checkpointsRef.current;
 
-    // Use our highly-validated liveTopSpeed to prevent drift spikes from affecting history
-    const maxSpeed = liveTopSpeedRef.current;
+    // Calculate finalTopSpeed from the max of all valid speed samples recorded in the track
+    let finalTopSpeed = liveTopSpeedRef.current;
+    if (currentTrack.length > 0) {
+      const maxTrackSpeedMS = Math.max(...currentTrack.map(p => p.speed));
+      const maxTrackSpeedUnit = convertSpeed(maxTrackSpeedMS, appSettings.unit);
+      finalTopSpeed = Math.max(liveTopSpeedRef.current, maxTrackSpeedUnit);
+    }
     
     // Use interpolated time for the target checkpoint as totalTime if available (more accurate)
     const targetCp = finalCps.find((cp) => cp.distance === targetDistance && cp.passed);
@@ -109,6 +114,11 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     let avgSpeed = 0;
     if (finalValidDistance > 0 && finalElapsedTime > 0) {
       avgSpeed = convertSpeed(finalValidDistance / finalElapsedTime, appSettings.unit);
+    }
+
+    // Mathematically: Top Speed >= AVG Speed. Enforce consistency based on Mean Value Theorem
+    if (avgSpeed > finalTopSpeed) {
+      finalTopSpeed = avgSpeed;
     }
 
     // Compute average GPS Accuracy recorded during active run
@@ -134,7 +144,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
       engineCC: vehicle.engineCC || 0,
       targetDistance: targetDistance,
       checkpoints: finalCps,
-      topSpeed: maxSpeed,
+      topSpeed: finalTopSpeed,
       averageSpeed: avgSpeed,
       totalTime: finalElapsedTime,
       gpsTrack: currentTrack,
@@ -146,7 +156,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     onFinishRun(runResult);
   };
 
-  // --- UNIFIED GPS UPDATE ENGINE (USED BY BOTH SENSOR & SIMULATION) ---
+  // --- UNIFIED GPS UPDATE ENGINE (USED BY REAL GPS SENSOR) ---
   const handleGPSUpdate = (position: { coords: { latitude: number; longitude: number; accuracy: number; speed: number | null }; timestamp: number }) => {
     const now = position.timestamp || Date.now();
     const coords = position.coords;
@@ -154,7 +164,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     
     // 1. REJECT STALE GPS READINGS (older than 3 seconds)
     const staleAgeMs = Date.now() - now;
-    // For simulations or current sensor inputs, we tolerate small lag, but reject real stale data
+    // For sensor inputs, we tolerate small lag, but reject real stale data
     if (staleAgeMs > 3000) {
       console.warn('GPS data too stale:', staleAgeMs, 'ms. Ignored.');
       return;
@@ -419,39 +429,45 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
     // Rate-of-change speed validation to reject outlier spikes
     const dt = (now - lastPoint.realTimestamp) / 1000;
     
-    // Implied speed from position change
+    // Implied speed from position change (distance / deltaTime)
     const impliedSpeed = dt > 0 ? (incrementalDistance / dt) : 0;
-    let finalSpeed = rawSpeed;
+    let validSpeedCandidate = 0;
 
-    // GPS Spike and Outlier Filter:
-    // If coords.speed (rawSpeed) shows an impossible spike not supported by coordinate displacement,
-    // fallback to impliedSpeed or cap it to prevent fake top speed records
-    if (dt > 0) {
-      // 1. Extreme spike detection (e.g. rawSpeed is > 15 m/s (~54 km/h) and more than 3x the impliedSpeed)
-      if (rawSpeed > 15 && rawSpeed > impliedSpeed * 3) {
-        finalSpeed = impliedSpeed;
-      }
+    const hasGPSSpeed = (coords.speed !== null && coords.speed > 0.05);
 
-      // 2. Physical acceleration limit filter (max 13.0 m/s^2 accel, max 22.0 m/s^2 decel)
-      const maxAcceleration = 13.0; // m/s^2
-      const maxDeceleration = 22.0; // m/s^2
-      const maxSpeedLimit = lastPoint.speed + maxAcceleration * dt;
-      const minSpeedLimit = Math.max(0, lastPoint.speed - maxDeceleration * dt);
-      
-      if (finalSpeed > maxSpeedLimit) {
-        finalSpeed = maxSpeedLimit;
-      } else if (finalSpeed < minSpeedLimit) {
-        finalSpeed = minSpeedLimit;
+    if (hasGPSSpeed) {
+      const rawSpeed = coords.speed!;
+      // Validate GPS reported speed
+      if (dt > 0) {
+        const acceleration = (rawSpeed - lastPoint.speed) / dt;
+        const speedDiff = Math.abs(rawSpeed - impliedSpeed);
+        
+        // If reported speed has impossible acceleration or is a massive outlier from implied speed
+        if (acceleration > 13.0 || acceleration < -22.0 || (rawSpeed > 15 && speedDiff > rawSpeed * 0.7)) {
+          // Fallback to calculated (implied) speed
+          validSpeedCandidate = impliedSpeed;
+        } else {
+          validSpeedCandidate = rawSpeed;
+        }
+      } else {
+        validSpeedCandidate = rawSpeed;
       }
+    } else {
+      // coords.speed is not available or not valid, use fallback: distance / deltaTime
+      validSpeedCandidate = impliedSpeed;
     }
 
-    // If speed is extremely small/negligible, set to 0 to prevent drift
-    if (finalSpeed < 0.1) {
-      finalSpeed = 0;
+    // Apply strict limit on maximum physical speed to reject any crazy spikes (e.g., 300 km/h = 83.3 m/s)
+    if (validSpeedCandidate > 83.3) {
+      validSpeedCandidate = lastPoint.speed;
+    }
+
+    if (validSpeedCandidate < 0.1) {
+      validSpeedCandidate = 0;
     }
 
     // Speed Smoothing (Exponential filter: 70% last, 30% current)
-    const smoothedSpeed = lastPoint ? (lastPoint.speed * 0.7 + finalSpeed * 0.3) : finalSpeed;
+    const smoothedSpeed = lastPoint ? (lastPoint.speed * 0.7 + validSpeedCandidate * 0.3) : validSpeedCandidate;
 
     // Update distance and speed
     const newCumulativeDistance = distanceRef.current + incrementalDistance;
@@ -466,8 +482,9 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
       setLiveAvgSpeed(0);
     }
 
-    // Track Top Speed only from validated smoothed speed
-    const speedUnitValue = convertSpeed(smoothedSpeed, appSettings.unit);
+    // Peak speed tracking: take the highest valid speed (smoother or direct candidate) to ensure peak speed isn't lost due to sampling
+    const highestValidSegmentSpeedMS = Math.max(smoothedSpeed, validSpeedCandidate);
+    const speedUnitValue = convertSpeed(highestValidSegmentSpeedMS, appSettings.unit);
     const currentTop = Math.max(liveTopSpeedRef.current, speedUnitValue);
     liveTopSpeedRef.current = currentTop;
     setLiveTopSpeed(currentTop);
@@ -479,7 +496,7 @@ export const LiveDrag: React.FC<LiveDragProps> = ({
       timestamp: elapsedMs,
       realTimestamp: now,
       accuracy: acc,
-      speed: smoothedSpeed,
+      speed: highestValidSegmentSpeedMS, // Store the best validated speed
       cumulativeDistance: newCumulativeDistance,
     };
 
